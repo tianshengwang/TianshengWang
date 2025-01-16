@@ -127,7 +127,7 @@ get_r_loss <- function(Y, tree, index, cost = 0, prune_info, W.orig = NULL, W.ha
 #' }
 #'
 #' @export
-find_best_tree <- function(forest, type = c("regression", "causal"), cost = 0) {
+find_best_tree <- function(forest, type = "causal", cost = 0) {
   best_r_loss <- Inf
   best_tree <- 0
   best_prune_info <- list()
@@ -146,10 +146,7 @@ find_best_tree <- function(forest, type = c("regression", "causal"), cost = 0) {
     t_tree <- grf::get_tree(forest, t)
     prune_info <- rep(list(list(is_pruned_leaf = FALSE, samples = c())),
                       length(t_tree$nodes))
-    if (type == "regression") {
-      t_tree <- get_r_loss(Y, t_tree, 1, cost, prune_info)
-    } else {
-      t_tree <- get_r_loss(Y, t_tree, 1, cost, prune_info, W.orig, W.hat, M.hat, Tau.hat)
+    t_tree <- get_r_loss(Y, t_tree, 1, cost, prune_info, W.orig, W.hat, M.hat, Tau.hat)
     }
     if (t_tree$node_r_loss < best_r_loss) {
       best_r_loss <- t_tree$node_r_loss
@@ -170,11 +167,11 @@ find_best_tree <- function(forest, type = c("regression", "causal"), cost = 0) {
 #' @export
 find_leaf <- function(x, tree, prune_info) {
   nodes <- tree$nodes
-  
+
   # Begin at root
   n <- nodes[[1]]
   idx <- 1
-  
+
   # Propagate down until hit leaf
   while(!prune_info[[idx]]$is_pruned_leaf) {
     if (x[n$split_variable] <= n$split_value) {
@@ -226,4 +223,25 @@ estimate_params <- function(X, Y, tree, prune_info){
     }
   }
   return(tree_with_oob)
+}
+
+
+# Try it out:
+if (FALSE) {
+  library(grf)
+  n <- 2000
+  p <- 5
+  X <- matrix(runif(n * p), n, p)
+  W <- rbinom(n, 1, 0.5)
+  horizon <- 1
+  failure.time <- pmin(rexp(n) * X[, 1] + W, horizon)
+  censor.time <- 2 * runif(n)
+  Y <- round(pmin(failure.time, censor.time), 2)
+  D <- as.integer(failure.time <= censor.time)
+  cf <- causal_survival_forest(X, Y, W, D, horizon = horizon)
+
+
+  cf
+
+
 }
