@@ -17,18 +17,13 @@
 #' @return The r_loss of the samples.
 #'
 #' @export
-r_loss <- function(Y, samples, W.orig = NULL, W.hat = NULL, M.hat = NULL, Tau.hat = NULL) {
+r_loss <- function(Y, samples, W.orig = NULL, W.hat = NULL, M.hat = NULL, Tau.hat = NULL, forest) {
   size <- length(samples)
   if (size == 1) {
     return(Y[samples[1]]^2)
   }
-  if (is.null(W.orig)) {
-    unscaled_spread <- sum((Y[samples] - mean(Y[samples]))^2)
-    output <- unscaled_spread * (size^2)/((size - 1)^2)
-  } else {
-    unscaled_spread <- sum((Y[samples] - M.hat[samples] - (W.orig[samples] - W.hat[samples])*mean(Tau.hat[samples]))^2)
-    output <- unscaled_spread * (size^2)/((size - 1)^2)
-  }
+  unscaled_spread <- sum( ((forest[["_psi"]]$numerator[samples] - forest[["_psi"]]$denominator[samples] * Tau.hat[samples]) / (forest$W.orig[samples] - forest$W.hat[samples]))^2 )
+  output <- unscaled_spread * (size^2)/((size - 1)^2)
   return(output)
 }
 
@@ -66,27 +61,27 @@ r_loss <- function(Y, samples, W.orig = NULL, W.hat = NULL, M.hat = NULL, Tau.ha
 #' }
 #'
 #' @export
-get_r_loss <- function(Y, tree, index, cost = 0, prune_info, W.orig = NULL, W.hat = NULL, M.hat = NULL, Tau.hat = NULL) {
+get_r_loss <- function(Y, tree, index, cost = 0, prune_info, W.orig = NULL, W.hat = NULL, M.hat = NULL, Tau.hat = NULL, forest) {
   node <- tree$nodes[[index]]
   if (node$is_leaf) {
     # If the node is a leaf, then we just calculate the r_loss and return
     prune_info[[index]]$is_pruned_leaf <- TRUE
     prune_info[[index]]$samples <- node$samples
-    node_r_loss <- r_loss(Y, node$samples, W.orig, W.hat, M.hat, Tau.hat)
+    node_r_loss <- r_loss(Y, node$samples, W.orig, W.hat, M.hat, Tau.hat, forest)
     return(list(node_r_loss = node_r_loss, prune_info = prune_info))
   } else {
     # If the node is not a leaf, first we get the samples and r_loss of the left child
-    left_leaf <- get_r_loss(Y, tree, node$left_child, cost, prune_info, W.orig, W.hat, M.hat, Tau.hat)
+    left_leaf <- get_r_loss(Y, tree, node$left_child, cost, prune_info, W.orig, W.hat, M.hat, Tau.hat, forest)
     new_prune_info <- left_leaf$prune_info
     left_r_loss <- left_leaf$node_r_loss
     # Then we get samples and r_loss from the right child
-    right_leaf <- get_r_loss(Y, tree, node$right_child, cost, new_prune_info, W.orig, W.hat, M.hat, Tau.hat)
+    right_leaf <- get_r_loss(Y, tree, node$right_child, cost, new_prune_info, W.orig, W.hat, M.hat, Tau.hat, forest)
     new_prune_info <- right_leaf$prune_info
     right_r_loss <- right_leaf$node_r_loss
     # Then we aggregate the samples and calculace the aggregated r_loss
     node_samples <- c(new_prune_info[[node$left_child]]$samples, new_prune_info[[node$right_child]]$samples)
     new_prune_info[[index]]$samples <- node_samples
-    node_r_loss <- r_loss(Y, node_samples, W.orig, W.hat, M.hat, Tau.hat)
+    node_r_loss <- r_loss(Y, node_samples, W.orig, W.hat, M.hat, Tau.hat, forest)
     # Compare the r_losses, and decide whether to prune, then return
     if (node_r_loss < (left_r_loss + right_r_loss + cost)) {
       new_prune_info[[index]]$is_pruned_leaf <- TRUE
@@ -127,7 +122,7 @@ get_r_loss <- function(Y, tree, index, cost = 0, prune_info, W.orig = NULL, W.ha
 #' }
 #'
 #' @export
-find_best_tree <- function(forest, type = c("regression", "causal"), cost = 0) {
+find_best_tree <- function(forest, type = "causal", cost = 0) {
   best_r_loss <- Inf
   best_tree <- 0
   best_prune_info <- list()
@@ -146,11 +141,7 @@ find_best_tree <- function(forest, type = c("regression", "causal"), cost = 0) {
     t_tree <- grf::get_tree(forest, t)
     prune_info <- rep(list(list(is_pruned_leaf = FALSE, samples = c())),
                       length(t_tree$nodes))
-    if (type == "regression") {
-      t_tree <- get_r_loss(Y, t_tree, 1, cost, prune_info)
-    } else {
-      t_tree <- get_r_loss(Y, t_tree, 1, cost, prune_info, W.orig, W.hat, M.hat, Tau.hat)
-    }
+    t_tree <- get_r_loss(Y, t_tree, 1, cost, prune_info, W.orig, W.hat, M.hat, Tau.hat, forest)
     if (t_tree$node_r_loss < best_r_loss) {
       best_r_loss <- t_tree$node_r_loss
       best_tree <- t
@@ -170,11 +161,11 @@ find_best_tree <- function(forest, type = c("regression", "causal"), cost = 0) {
 #' @export
 find_leaf <- function(x, tree, prune_info) {
   nodes <- tree$nodes
-  
+
   # Begin at root
   n <- nodes[[1]]
   idx <- 1
-  
+
   # Propagate down until hit leaf
   while(!prune_info[[idx]]$is_pruned_leaf) {
     if (x[n$split_variable] <= n$split_value) {
@@ -226,4 +217,23 @@ estimate_params <- function(X, Y, tree, prune_info){
     }
   }
   return(tree_with_oob)
+}
+
+
+# Try it out:
+if (FALSE) {
+  library(grf)
+  n <- 2000
+  p <- 5
+  X <- matrix(runif(n * p), n, p)
+  W <- rbinom(n, 1, 0.5)
+  horizon <- 1
+  failure.time <- pmin(rexp(n) * X[, 1] + W, horizon)
+  censor.time <- 2 * runif(n)
+  Y <- round(pmin(failure.time, censor.time), 2)
+  D <- as.integer(failure.time <= censor.time)
+  cf <- causal_survival_forest(X, Y, W, D, horizon = horizon)
+
+  best = find_best_tree(cf)
+  best$best_tree
 }
