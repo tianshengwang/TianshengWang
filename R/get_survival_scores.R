@@ -1,4 +1,5 @@
 #' Compute doubly robust survival scores for iCSF algorithm.
+#' Author: Erik Sverdrup
 #' Compute doubly robust scores for 1) survival probability estimation \eqn{P[T_i > \text{horizon}]},
 #' or 2) restricted mean survival time (RMST) \eqn{E[min(T_i, \text{horizon})]} under discrete-time right-censoring.
 #'
