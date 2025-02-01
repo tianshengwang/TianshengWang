@@ -104,6 +104,7 @@ if (FALSE) {
                                 failure.times = Y.grid,
                                 num.trees = 250,
                                 prediction.type = "Nelson-Aalen")
+  D <- pmax(D, Y > horizon) #redefine "D" to be the "effective censoring indicator \Delta_i^h" like in the CSF paper
   S.hat = predict(sf.survival)$predictions
   sf.censor = survival_forest(X, Y, 1 - D,
                               failure.times = Y.grid,
