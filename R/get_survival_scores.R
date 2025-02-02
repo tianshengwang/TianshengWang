@@ -80,7 +80,7 @@ get_survival_scores <- function(Y,
 
  
   
-  
+  D <- pmax(D, Y > horizon) #redefine "D" to be the "effective censoring indicator \Delta_i^h" like in the CSF paper
   Gamma.hat = ( D*pmin(Y, horizon) + (1 - D) * Q.Y.hat) / C.Y.hat - integral.correction
   
   list(Gamma.dr = Gamma.hat,
